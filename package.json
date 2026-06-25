@@ -1,0 +1,46 @@
+{
+  "name": "signalk-ajrm-marine-vessel-database",
+  "version": "0.5.0",
+  "description": "Local vessel notes and identity database for AJRM Marine Suite.",
+  "main": "plugin/index.js",
+  "scripts": {
+    "test": "node --check plugin/index.js && node --check public/app.js && node --test"
+  },
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-webapp",
+    "ais",
+    "vessels",
+    "signal-k",
+    "signalk",
+    "ajrm-marine-suite",
+    "marine",
+    "navigation"
+  ],
+  "author": "Anthony McDonald, with assistance from William McAusland",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database/issues"
+  },
+  "homepage": "https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "plugin",
+    "public",
+    "test",
+    "README.md",
+    "LICENSE",
+    "icon.svg"
+  ],
+  "signalk-plugin-enabled-by-default": true,
+  "signalk": {
+    "displayName": "AJRM Marine Vessel Database",
+    "appIcon": "./icon.svg"
+  }
+}

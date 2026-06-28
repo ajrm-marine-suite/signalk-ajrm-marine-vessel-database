@@ -1,6 +1,6 @@
 {
   "name": "signalk-ajrm-marine-vessel-database",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Local vessel notes and identity database for AJRM Marine Suite.",
   "main": "plugin/index.js",
   "scripts": {
@@ -34,7 +34,6 @@
   "files": [
     "plugin",
     "public",
-    "test",
     "README.md",
     "LICENSE",
     "icon.svg"

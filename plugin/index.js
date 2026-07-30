@@ -33,7 +33,7 @@ const FILLABLE_KEYS = [
   "aisFromBow",
   "aisFromCenter",
 ];
-const ROOT_STATIC_FILL_KEYS = new Set(["name", "callsign"]);
+const ROOT_STATIC_FILL_KEYS = new Set(["name", "callsign", "imo"]);
 const LEGACY_REFERENCE_DIMENSION_KEYS = [
   "dimensionToBow",
   "dimensionToStern",
@@ -262,13 +262,19 @@ module.exports = function ajrmMarineVesselDatabase(app) {
     const rootValue = {};
     for (const key of FILLABLE_KEYS) {
       if (liveFields[key] !== undefined) continue;
+      if (currentFieldIsPresent(context, key)) continue;
       const value = record.fields[key];
       if (value === undefined) continue;
-      if (!canFill(context, key)) continue;
       const signalKValue = toSignalKValue(key, value);
       if (signalKValue === undefined) continue;
+      if (!canFill(context, key)) continue;
       if (ROOT_STATIC_FILL_KEYS.has(key)) {
-        mergeRootStaticValue(rootValue, key, signalKValue);
+        mergeRootStaticValue(
+          rootValue,
+          key,
+          signalKValue,
+          key === "imo" ? currentRegistrations(context) : undefined,
+        );
         continue;
       }
       values.push({ path: pathForKey(key), value: signalKValue });
@@ -291,6 +297,22 @@ module.exports = function ajrmMarineVesselDatabase(app) {
       ],
     });
     publishSummary();
+  }
+
+  function currentFieldIsPresent(context, key) {
+    if (typeof app.getPath !== "function") return false;
+    const field = FIELD_BY_PATH.get(pathForKey(key));
+    if (!field) return false;
+    const currentValue = app.getPath(`${context}.${field.path}`);
+    return normalizeFieldValue(field, currentValue) !== undefined;
+  }
+
+  function currentRegistrations(context) {
+    if (typeof app.getPath !== "function") return {};
+    const registrations = app.getPath(`${context}.registrations`);
+    return registrations && typeof registrations === "object" && !Array.isArray(registrations)
+      ? registrations
+      : {};
   }
 
   function canFill(context, key) {
@@ -515,7 +537,9 @@ function normalizeText(value) {
 
 function normalizeImo(value) {
   const text = normalizeText(value);
-  return text ? text.replace(/^imo/i, "").trim() : undefined;
+  if (!text) return undefined;
+  const match = text.match(/^(?:IMO\s*)?([0-9]{7})$/i);
+  return match ? match[1] : undefined;
 }
 
 function normalizeShipType(value) {
@@ -577,10 +601,14 @@ function pathForKey(key) {
 function toSignalKValue(key, value) {
   if (key === "length") return { overall: value };
   if (key === "draft") return { current: value };
+  if (key === "imo") {
+    const imo = normalizeImo(value);
+    return imo ? `IMO ${imo}` : undefined;
+  }
   return value;
 }
 
-function mergeRootStaticValue(rootValue, key, value) {
+function mergeRootStaticValue(rootValue, key, value, existingRegistrations = {}) {
   if (key === "name") {
     rootValue.name = value;
     return;
@@ -589,6 +617,14 @@ function mergeRootStaticValue(rootValue, key, value) {
     rootValue.communication = {
       ...(rootValue.communication || {}),
       callsignVhf: value,
+    };
+    return;
+  }
+  if (key === "imo") {
+    rootValue.registrations = {
+      ...existingRegistrations,
+      ...(rootValue.registrations || {}),
+      imo: value,
     };
   }
 }

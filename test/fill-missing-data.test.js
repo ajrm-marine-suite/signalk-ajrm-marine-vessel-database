@@ -27,6 +27,7 @@ test("fills persisted static data into a dynamic-only AIS vessel delta", () => {
             fields: {
               name: "NORTH CHANNEL",
               callsign: "VSA001",
+              imo: "9482902",
               aisClass: "A",
               shipType: { id: 70, name: "Cargo" },
               length: 1000,
@@ -94,12 +95,127 @@ test("fills persisted static data into a dynamic-only AIS vessel delta", () => {
     communication: {
       callsignVhf: "VSA001",
     },
+    registrations: {
+      imo: "IMO 9482902",
+    },
   });
+  assert.equal(values.some((entry) => entry.path === "registrations.imo"), false);
   assert.deepEqual(values.find((entry) => entry.path === "design.length").value, {
     overall: 1000,
   });
   assert.equal(values.find((entry) => entry.path === "sensors.ais.fromBow").value, 860);
   assert.equal(values.find((entry) => entry.path === "sensors.ais.fromCenter").value, -12);
+});
+
+test("does not refill static data already present in the Signal K full model", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vessel-database-current-model-test-"));
+  const databasePath = path.join(tempDir, "vessels.json");
+  const context = "vessels.urn:mrn:imo:mmsi:235900011";
+  fs.writeFileSync(
+    databasePath,
+    `${JSON.stringify({
+      version: 1,
+      plugin: "signalk-ajrm-marine-vessel-database",
+      vessels: {
+        235900011: {
+          mmsi: "235900011",
+          fields: {
+            name: "PRESENT VESSEL",
+            imo: "9482902",
+            length: 90,
+          },
+          fieldUpdatedAt: {},
+        },
+      },
+    })}\n`,
+  );
+
+  const app = createFakeApp({
+    [`${context}.name`]: "PRESENT VESSEL",
+    [`${context}.registrations.imo`]: "IMO 9482902",
+    [`${context}.design.length`]: { value: { overall: 90 } },
+  });
+  const plugin = createPlugin(app);
+  plugin.start({
+    databaseDirectory: tempDir,
+    fillMissingData: true,
+    publishSummary: false,
+  });
+
+  app.signalk.emit("delta", {
+    context,
+    updates: [
+      {
+        timestamp: "2026-05-08T12:00:00.000Z",
+        values: [{ path: "navigation.position", value: { latitude: 59.1, longitude: 23.2 } }],
+      },
+    ],
+  });
+  plugin.stop();
+
+  assert.equal(app.messages.some((message) => message.context === context), false);
+});
+
+test("fills IMO as static data without replacing other registrations", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vessel-database-imo-test-"));
+  const databasePath = path.join(tempDir, "vessels.json");
+  const context = "vessels.urn:mrn:imo:mmsi:235900012";
+  fs.writeFileSync(
+    databasePath,
+    `${JSON.stringify({
+      version: 1,
+      plugin: "signalk-ajrm-marine-vessel-database",
+      vessels: {
+        235900012: {
+          mmsi: "235900012",
+          fields: { imo: "IMO9482902" },
+          fieldUpdatedAt: {},
+        },
+      },
+    })}\n`,
+  );
+
+  const national = {
+    GB: {
+      country: "GB",
+      registration: "SSR12345",
+      description: "UK Small Ships Register",
+    },
+  };
+  const app = createFakeApp({
+    [`${context}.registrations`]: { national },
+  });
+  const plugin = createPlugin(app);
+  plugin.start({
+    databaseDirectory: tempDir,
+    fillMissingData: true,
+    publishSummary: false,
+  });
+
+  app.signalk.emit("delta", {
+    context,
+    updates: [
+      {
+        timestamp: "2026-05-08T12:00:00.000Z",
+        values: [{ path: "navigation.position", value: { latitude: 59.1, longitude: 23.2 } }],
+      },
+    ],
+  });
+  plugin.stop();
+
+  const fillMessage = app.messages.find((message) => message.context === context);
+  const values = fillMessage.updates.flatMap((update) => update.values);
+  assert.deepEqual(values, [
+    {
+      path: "",
+      value: {
+        registrations: {
+          national,
+          imo: "IMO 9482902",
+        },
+      },
+    },
+  ]);
 });
 
 test("fills names again after an earlier static AIS update", () => {
@@ -450,10 +566,13 @@ test("scrubs legacy reference dimensions when loading existing databases", () =>
   assert.equal(saved.vessels["235900010"].fields.dimensionToBow, undefined);
 });
 
-function createFakeApp() {
+function createFakeApp(pathValues = {}) {
   return {
     signalk: new EventEmitter(),
     messages: [],
+    getPath(path) {
+      return pathValues[path];
+    },
     handleMessage(_id, message) {
       this.messages.push(message);
     },

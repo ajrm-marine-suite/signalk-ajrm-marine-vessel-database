@@ -2,10 +2,13 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const packageInfo = require("../package.json");
+const { ITU_MARS_URL, lookupItuMarsByMmsi } = require("./itu-mars");
 
 const SUMMARY_PATH = "plugins.ajrmMarineVesselDatabase.summary";
 const DEFAULT_FILE_NAME = "vessels.json";
 const FILL_COOLDOWN_MS = 60_000;
+const ONLINE_LOOKUP_DELAY_MS = 1_000;
+const EXPORT_FORMAT = "ajrm-marine-vessel-database";
 
 const FIELD_DEFS = [
   { key: "name", path: "name", type: "text" },
@@ -47,6 +50,7 @@ module.exports = function ajrmMarineVesselDatabase(app) {
   let database = createEmptyDatabase();
   let deltaListener = null;
   let saveTimer = null;
+  let lookupJob = createLookupJob();
   const fillTimes = new Map();
   const stats = {
     learned: 0,
@@ -100,6 +104,8 @@ module.exports = function ajrmMarineVesselDatabase(app) {
     },
   };
 
+  plugin.getOpenApi = () => require("./openApi.json");
+
   plugin.start = (pluginOptions = {}) => {
     options = normalizeOptions(pluginOptions, app);
     ensureDirectory(options.databaseDirectory);
@@ -111,6 +117,7 @@ module.exports = function ajrmMarineVesselDatabase(app) {
   };
 
   plugin.stop = () => {
+    lookupJob.cancelRequested = true;
     if (deltaListener) {
       app.signalk?.removeListener?.("delta", deltaListener);
       deltaListener = null;
@@ -135,7 +142,72 @@ module.exports = function ajrmMarineVesselDatabase(app) {
       });
     });
 
+    router.get("/export", (_req, res) => {
+      const fileName = `ajrm-vessels-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      res.send(`${JSON.stringify(buildExportPayload(database), null, 2)}\n`);
+    });
+
+    router.post("/import", (req, res) => {
+      try {
+        if (lookupJob.running) {
+          res.status(409).json({
+            ok: false,
+            error: "Cancel or finish the online lookup before importing a database",
+          });
+          return;
+        }
+        const mode = req.body?.mode === "replace" ? "replace" : "merge";
+        const payload = req.body?.payload ?? req.body;
+        const imported = importDatabasePayload(database, payload, mode);
+        if (mode === "replace") writePreImportBackup();
+        database = imported.database;
+        fillTimes.clear();
+        saveDatabase();
+        publishSummary();
+        app.setPluginStatus(
+          `Imported ${imported.importedCount} vessels (${mode}) v${packageInfo.version}`,
+        );
+        res.json({ ok: true, ...imported.summary, status: buildStatus() });
+      } catch (error) {
+        stats.errors += 1;
+        res.status(400).json({ ok: false, error: error.message });
+      }
+    });
+
+    router.get("/lookup/status", (_req, res) => {
+      res.json({ ok: true, lookup: lookupStatus() });
+    });
+
+    router.post("/lookup/start", (_req, res) => {
+      if (lookupJob.running) {
+        res.status(409).json({ ok: false, error: "An online vessel lookup is already running" });
+        return;
+      }
+      const candidates = lookupCandidates(database);
+      lookupJob = createLookupJob(candidates.length);
+      if (!candidates.length) {
+        lookupJob.finishedAt = new Date().toISOString();
+        res.json({ ok: true, lookup: lookupStatus() });
+        return;
+      }
+      lookupJob.running = true;
+      lookupJob.startedAt = new Date().toISOString();
+      void runOnlineLookup(candidates);
+      res.status(202).json({ ok: true, lookup: lookupStatus() });
+    });
+
+    router.post("/lookup/cancel", (_req, res) => {
+      lookupJob.cancelRequested = true;
+      res.json({ ok: true, lookup: lookupStatus() });
+    });
+
     router.delete("/vessels", (_req, res) => {
+      if (lookupJob.running) {
+        res.status(409).json({ ok: false, error: "Cancel or finish the online lookup first" });
+        return;
+      }
       clearDatabase();
       res.json({
         ok: true,
@@ -144,6 +216,10 @@ module.exports = function ajrmMarineVesselDatabase(app) {
     });
 
     router.post("/delete-all", (_req, res) => {
+      if (lookupJob.running) {
+        res.status(409).json({ ok: false, error: "Cancel or finish the online lookup first" });
+        return;
+      }
       clearDatabase();
       res.json({
         ok: true,
@@ -350,6 +426,118 @@ module.exports = function ajrmMarineVesselDatabase(app) {
     }
   }
 
+  function writePreImportBackup() {
+    ensureDirectory(options.databaseDirectory);
+    const suffix = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupPath = path.join(options.databaseDirectory, `vessels.before-import-${suffix}.json`);
+    fs.writeFileSync(backupPath, `${JSON.stringify(database, null, 2)}\n`);
+  }
+
+  async function runOnlineLookup(candidates) {
+    for (let index = 0; index < candidates.length; index += 1) {
+      if (lookupJob.cancelRequested) break;
+      const mmsi = candidates[index];
+      lookupJob.currentMmsi = mmsi;
+      try {
+        const result = await lookupItuMarsByMmsi(mmsi);
+        if (lookupJob.cancelRequested) break;
+        const record = database.vessels[mmsi];
+        if (!record) {
+          lookupJob.notFound += 1;
+        } else if (!result) {
+          record.onlineLookup = lookupEvidence("not-found");
+          lookupJob.notFound += 1;
+        } else {
+          const changed = applyLookupResult(record, result);
+          lookupJob.matched += 1;
+          if (changed) {
+            lookupJob.updated += 1;
+            stats.updated += 1;
+          }
+          scheduleSave();
+        }
+      } catch (error) {
+        lookupJob.failed += 1;
+        lookupJob.lastError = `${mmsi}: ${error.message}`;
+        app.debug(`[${plugin.id}] ITU MARS lookup failed for ${mmsi}: ${error.message}`);
+      }
+      lookupJob.processed += 1;
+      publishSummary();
+      if (index < candidates.length - 1 && !lookupJob.cancelRequested) {
+        await delay(ONLINE_LOOKUP_DELAY_MS);
+      }
+    }
+    lookupJob.currentMmsi = null;
+    lookupJob.running = false;
+    lookupJob.cancelled = lookupJob.cancelRequested;
+    lookupJob.finishedAt = new Date().toISOString();
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    saveDatabase();
+    publishSummary();
+    app.setPluginStatus(
+      `Online lookup ${lookupJob.cancelled ? "cancelled" : "finished"}: ${lookupJob.updated} updated, ${lookupJob.failed} failed`,
+    );
+  }
+
+  function applyLookupResult(record, result) {
+    const now = new Date().toISOString();
+    let changed = false;
+    record.fields ||= {};
+    record.fieldUpdatedAt ||= {};
+    for (const key of ["name", "callsign", "imo"]) {
+      if (record.fields[key] !== undefined || result[key] === undefined) continue;
+      const field = FIELD_DEFS.find((candidate) => candidate.key === key);
+      const normalized = normalizeFieldValue(field, result[key]);
+      if (normalized === undefined) continue;
+      record.fields[key] = normalized;
+      record.fieldUpdatedAt[key] = now;
+      changed = true;
+    }
+    const ituMars = normalizeItuMarsDetail(result.detail);
+    if (ituMars && !sameValue(record.fields.ituMars, ituMars)) {
+      record.fields.ituMars = ituMars;
+      record.fieldUpdatedAt.ituMars = now;
+      changed = true;
+    }
+    record.onlineLookup = lookupEvidence("matched", result);
+    record.updatedAt = changed ? now : record.updatedAt;
+    if (changed) database.updatedAt = now;
+    return changed;
+  }
+
+  function lookupEvidence(status, result = {}) {
+    return {
+      status,
+      source: "ITU MARS",
+      sourceUrl: ITU_MARS_URL,
+      checkedAt: new Date().toISOString(),
+      ...(result.mmsi ? { matchedMmsi: result.mmsi } : {}),
+    };
+  }
+
+  function lookupStatus() {
+    return {
+      running: lookupJob.running,
+      cancelRequested: lookupJob.cancelRequested,
+      cancelled: lookupJob.cancelled,
+      total: lookupJob.total,
+      processed: lookupJob.processed,
+      matched: lookupJob.matched,
+      updated: lookupJob.updated,
+      notFound: lookupJob.notFound,
+      failed: lookupJob.failed,
+      currentMmsi: lookupJob.currentMmsi,
+      startedAt: lookupJob.startedAt,
+      finishedAt: lookupJob.finishedAt,
+      lastError: lookupJob.lastError,
+      source: "ITU MARS",
+      sourceUrl: ITU_MARS_URL,
+    };
+  }
+
   function clearDatabase() {
     database = createEmptyDatabase();
     fillTimes.clear();
@@ -383,6 +571,7 @@ module.exports = function ajrmMarineVesselDatabase(app) {
       vesselCount: countVessels(),
       databasePath: options.databasePath,
       fillMissingData: options.fillMissingData,
+      lookup: lookupStatus(),
       stats: { ...stats },
     };
   }
@@ -398,6 +587,7 @@ module.exports = function ajrmMarineVesselDatabase(app) {
         firstSeen: record.firstSeen,
         lastSeen: record.lastSeen,
         updatedAt: record.updatedAt,
+        onlineLookup: record.onlineLookup,
         ...record.fields,
       }))
       .sort((a, b) => {
@@ -417,6 +607,229 @@ function createEmptyDatabase() {
     updatedAt: now,
     vessels: {},
   };
+}
+
+function createLookupJob(total = 0) {
+  return {
+    running: false,
+    cancelRequested: false,
+    cancelled: false,
+    total,
+    processed: 0,
+    matched: 0,
+    updated: 0,
+    notFound: 0,
+    failed: 0,
+    currentMmsi: null,
+    startedAt: null,
+    finishedAt: null,
+    lastError: null,
+  };
+}
+
+function lookupCandidates(database) {
+  return Object.values(database?.vessels || {})
+    .filter((record) => !normalizeText(record?.fields?.name) || !normalizeText(record?.fields?.callsign))
+    .map((record) => normalizeMmsi(record.mmsi))
+    .filter(Boolean)
+    .sort();
+}
+
+function buildExportPayload(database) {
+  return {
+    format: EXPORT_FORMAT,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    vessels: Object.values(database?.vessels || {})
+      .map((record) => ({
+        mmsi: record.mmsi,
+        firstSeen: record.firstSeen,
+        lastSeen: record.lastSeen,
+        updatedAt: record.updatedAt,
+        ...record.fields,
+        fieldUpdatedAt: record.fieldUpdatedAt,
+        onlineLookup: record.onlineLookup,
+      }))
+      .sort((left, right) => String(left.mmsi).localeCompare(String(right.mmsi))),
+  };
+}
+
+function importDatabasePayload(currentDatabase, payload, mode = "merge") {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Import file must contain a JSON object");
+  }
+  if (payload.format !== undefined && payload.format !== EXPORT_FORMAT) {
+    throw new Error(`Unsupported import format: ${payload.format}`);
+  }
+  if (!Array.isArray(payload.vessels)) {
+    throw new Error("Import file must contain a vessels array");
+  }
+  const now = new Date().toISOString();
+  const records = payload.vessels.map((item, index) => normalizeImportedRecord(item, index, now));
+  const seen = new Set();
+  for (const item of records) {
+    if (seen.has(item.mmsi)) throw new Error(`Duplicate MMSI in import: ${item.mmsi}`);
+    seen.add(item.mmsi);
+  }
+
+  const database = mode === "replace" ? createEmptyDatabase() : cloneDatabase(currentDatabase);
+  let added = 0;
+  let updated = 0;
+  for (const item of records) {
+    const existing = database.vessels[item.mmsi];
+    const fields = mode === "replace" ? {} : { ...(existing?.fields || {}) };
+    const fieldUpdatedAt = mode === "replace" ? {} : { ...(existing?.fieldUpdatedAt || {}) };
+    for (const [key, operation] of Object.entries(item.fieldOperations)) {
+      if (operation === undefined) {
+        delete fields[key];
+        delete fieldUpdatedAt[key];
+      } else {
+        fields[key] = operation;
+        fieldUpdatedAt[key] = item.fieldUpdatedAt[key] || now;
+      }
+    }
+    database.vessels[item.mmsi] = {
+      mmsi: item.mmsi,
+      firstSeen: item.firstSeen || existing?.firstSeen || now,
+      lastSeen: item.lastSeen || existing?.lastSeen || now,
+      updatedAt: item.updatedAt || now,
+      fields,
+      fieldUpdatedAt,
+      ...(item.onlineLookup || existing?.onlineLookup
+        ? { onlineLookup: item.onlineLookup || existing.onlineLookup }
+        : {}),
+    };
+    if (existing) updated += 1;
+    else added += 1;
+  }
+  database.version = 1;
+  database.plugin = "signalk-ajrm-marine-vessel-database";
+  database.updatedAt = now;
+  return {
+    database,
+    importedCount: records.length,
+    summary: { mode, imported: records.length, added, updated, total: Object.keys(database.vessels).length },
+  };
+}
+
+function normalizeImportedRecord(item, index, now) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    throw new Error(`Vessel ${index + 1} must be a JSON object`);
+  }
+  const mmsi = normalizeMmsi(item.mmsi);
+  if (!mmsi) throw new Error(`Vessel ${index + 1} has an invalid MMSI`);
+  const knownKeys = new Set([
+    "mmsi",
+    "firstSeen",
+    "lastSeen",
+    "updatedAt",
+    "fieldUpdatedAt",
+    "onlineLookup",
+    "ituMars",
+    ...FIELD_DEFS.map((field) => field.key),
+  ]);
+  const unknownKey = Object.keys(item).find((key) => !knownKeys.has(key));
+  if (unknownKey) throw new Error(`Vessel ${mmsi} has an unknown field: ${unknownKey}`);
+
+  const fieldOperations = {};
+  for (const field of FIELD_DEFS) {
+    if (!Object.hasOwn(item, field.key)) continue;
+    if (item[field.key] === null || item[field.key] === "") {
+      fieldOperations[field.key] = undefined;
+      continue;
+    }
+    const normalized = normalizeFieldValue(field, item[field.key]);
+    if (normalized === undefined) {
+      throw new Error(`Vessel ${mmsi} has an invalid ${field.key}`);
+    }
+    fieldOperations[field.key] = normalized;
+  }
+  if (Object.hasOwn(item, "ituMars")) {
+    if (item.ituMars === null) fieldOperations.ituMars = undefined;
+    else {
+      const detail = normalizeItuMarsDetail(item.ituMars);
+      if (!detail) throw new Error(`Vessel ${mmsi} has invalid ITU MARS details`);
+      fieldOperations.ituMars = detail;
+    }
+  }
+  return {
+    mmsi,
+    firstSeen: optionalTimestamp(item.firstSeen, `Vessel ${mmsi} firstSeen`),
+    lastSeen: optionalTimestamp(item.lastSeen, `Vessel ${mmsi} lastSeen`),
+    updatedAt: optionalTimestamp(item.updatedAt, `Vessel ${mmsi} updatedAt`) || now,
+    fieldOperations,
+    fieldUpdatedAt: normalizeFieldUpdatedAt(item.fieldUpdatedAt, mmsi),
+    onlineLookup: normalizeOnlineLookup(item.onlineLookup, mmsi),
+  };
+}
+
+const ITU_MARS_DETAIL_KEYS = [
+  "administration",
+  "administrationCode",
+  "geographicalArea",
+  "geographicalAreaCode",
+  "generalClassification",
+  "primaryClassification",
+  "secondaryClassification",
+  "vesselIdentificationNumber",
+  "grossTonnage",
+  "personCapacity",
+  "radioInstallation",
+  "recordUpdatedAt",
+];
+
+function normalizeItuMarsDetail(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const result = {};
+  for (const key of ITU_MARS_DETAIL_KEYS) {
+    const text = normalizeText(value[key]);
+    if (text) result[key] = text;
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+
+function normalizeOnlineLookup(value, mmsi) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Vessel ${mmsi} has invalid onlineLookup metadata`);
+  }
+  const result = {};
+  for (const key of ["status", "source", "sourceUrl", "matchedMmsi"]) {
+    const text = normalizeText(value[key]);
+    if (text) result[key] = text;
+  }
+  if (value.checkedAt !== undefined) {
+    result.checkedAt = optionalTimestamp(value.checkedAt, `Vessel ${mmsi} onlineLookup.checkedAt`);
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+
+function normalizeFieldUpdatedAt(value, mmsi) {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Vessel ${mmsi} has invalid fieldUpdatedAt metadata`);
+  }
+  const result = {};
+  for (const [key, timestamp] of Object.entries(value)) {
+    if (![...FIELD_DEFS.map((field) => field.key), "ituMars"].includes(key)) continue;
+    result[key] = optionalTimestamp(timestamp, `Vessel ${mmsi} fieldUpdatedAt.${key}`);
+  }
+  return result;
+}
+
+function optionalTimestamp(value, label) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${label} is not a valid timestamp`);
+  return new Date(parsed).toISOString();
+}
+
+function cloneDatabase(database) {
+  return JSON.parse(JSON.stringify(database || createEmptyDatabase()));
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function loadDatabase(filePath) {
@@ -647,3 +1060,7 @@ function clampInteger(value, fallback, min, max) {
 module.exports.normalizeOptions = normalizeOptions;
 module.exports.extractFromVesselObject = extractFromVesselObject;
 module.exports.mmsiFromContext = mmsiFromContext;
+module.exports.buildExportPayload = buildExportPayload;
+module.exports.importDatabasePayload = importDatabasePayload;
+module.exports.lookupCandidates = lookupCandidates;
+module.exports.normalizeItuMarsDetail = normalizeItuMarsDetail;

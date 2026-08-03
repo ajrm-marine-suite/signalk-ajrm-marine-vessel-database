@@ -1,0 +1,65 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "AJRM Marine Vessel Database API",
+    "version": "0.7.0",
+    "description": "Local vessel identity database, JSON backup/restore, and rate-limited ITU MARS lookup."
+  },
+  "servers": [
+    {
+      "url": "/plugins/signalk-ajrm-marine-vessel-database"
+    }
+  ],
+  "paths": {
+    "/vessels": {
+      "get": {
+        "summary": "List stored vessels",
+        "responses": {
+          "200": { "description": "Stored vessel records" }
+        }
+      }
+    },
+    "/export": {
+      "get": {
+        "summary": "Download an editable JSON vessel database export",
+        "responses": {
+          "200": { "description": "Editable vessel database JSON" }
+        }
+      }
+    },
+    "/import": {
+      "post": {
+        "summary": "Validate and merge or replace vessel records from an export",
+        "responses": {
+          "200": { "description": "Import summary" },
+          "400": { "description": "Invalid import rejected without changing the database" }
+        }
+      }
+    },
+    "/lookup/start": {
+      "post": {
+        "summary": "Start a background ITU MARS lookup for vessels missing name or callsign",
+        "responses": {
+          "202": { "description": "Lookup started" },
+          "409": { "description": "Lookup already running" }
+        }
+      }
+    },
+    "/lookup/status": {
+      "get": {
+        "summary": "Get background lookup progress",
+        "responses": {
+          "200": { "description": "Lookup status" }
+        }
+      }
+    },
+    "/lookup/cancel": {
+      "post": {
+        "summary": "Request cancellation of the background lookup",
+        "responses": {
+          "200": { "description": "Cancellation requested" }
+        }
+      }
+    }
+  }
+}

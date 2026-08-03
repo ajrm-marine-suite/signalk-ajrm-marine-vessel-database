@@ -5,6 +5,15 @@ const els = {
   status: document.getElementById("status"),
   filter: document.getElementById("filter"),
   refresh: document.getElementById("refresh"),
+  exportVessels: document.getElementById("exportVessels"),
+  importVessels: document.getElementById("importVessels"),
+  importFile: document.getElementById("importFile"),
+  importDialog: document.getElementById("importDialog"),
+  importFileSummary: document.getElementById("importFileSummary"),
+  importMerge: document.getElementById("importMerge"),
+  importReplace: document.getElementById("importReplace"),
+  lookupUnknown: document.getElementById("lookupUnknown"),
+  cancelLookup: document.getElementById("cancelLookup"),
   deleteAll: document.getElementById("deleteAll"),
   vessels: document.getElementById("vessels"),
   details: document.getElementById("details"),
@@ -17,6 +26,8 @@ const els = {
 let vessels = [];
 let selectedMmsi = "";
 let visibleVessels = [];
+let pendingImport = null;
+let lookupPollTimer = null;
 
 function escapeHtml(value) {
   return String(value ?? "").replace(
@@ -81,6 +92,9 @@ function matchesFilter(vessel, query) {
     vessel.imo,
     vessel.aisClass,
     typeName(vessel.shipType),
+    vessel.ituMars?.administration,
+    vessel.ituMars?.generalClassification,
+    vessel.ituMars?.primaryClassification,
   ]
     .filter(Boolean)
     .join(" ")
@@ -143,6 +157,17 @@ function renderDetails(vessel) {
     ["Beam", formatDimension(vessel.beam)],
     ["GPS antenna from bow", formatDimension(vessel.aisFromBow)],
     ["GPS antenna from centre", formatDimension(vessel.aisFromCenter)],
+    ["ITU MARS administration", vessel.ituMars?.administration],
+    ["ITU MARS geographical area", vessel.ituMars?.geographicalArea],
+    ["ITU MARS general classification", vessel.ituMars?.generalClassification],
+    ["ITU MARS primary classification", vessel.ituMars?.primaryClassification],
+    ["ITU MARS secondary classification", vessel.ituMars?.secondaryClassification],
+    ["ITU MARS vessel ID", vessel.ituMars?.vesselIdentificationNumber],
+    ["ITU MARS gross tonnage", vessel.ituMars?.grossTonnage],
+    ["ITU MARS person capacity", vessel.ituMars?.personCapacity],
+    ["ITU MARS radio installation", vessel.ituMars?.radioInstallation],
+    ["Online lookup", vessel.onlineLookup?.status],
+    ["Online lookup checked", formatTime(vessel.onlineLookup?.checkedAt)],
     ["Last seen", formatTime(vessel.lastSeen)],
     ["Updated", formatTime(vessel.updatedAt)],
   ];
@@ -216,12 +241,151 @@ async function deleteAll() {
   els.status.textContent = "Vessel database cleared";
 }
 
+function exportVessels() {
+  const link = document.createElement("a");
+  link.href = `${API_BASE}/export`;
+  link.download = "";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  els.status.textContent = "Vessel database export requested";
+}
+
+async function chooseImportFile(file) {
+  if (!file) return;
+  const text = await file.text();
+  const payload = JSON.parse(text);
+  if (!payload || !Array.isArray(payload.vessels)) {
+    throw new Error("The selected JSON file does not contain a vessels array");
+  }
+  pendingImport = payload;
+  els.importFileSummary.textContent = `${file.name}: ${payload.vessels.length} vessel records.`;
+  if (typeof els.importDialog.showModal === "function") els.importDialog.showModal();
+  else await importVesselPayload("merge");
+}
+
+async function importVesselPayload(mode) {
+  if (!pendingImport) return;
+  if (
+    mode === "replace" &&
+    !window.confirm(
+      "Replace the entire vessel database with this file? A server-side pre-import backup will be written first.",
+    )
+  ) {
+    return;
+  }
+  els.importMerge.disabled = true;
+  els.importReplace.disabled = true;
+  els.status.textContent = `Importing vessel database (${mode})`;
+  try {
+    const result = await requestJson(`${API_BASE}/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, payload: pendingImport }),
+    });
+    pendingImport = null;
+    els.importDialog.close();
+    await refresh();
+    els.status.textContent = `Imported ${result.imported} vessels (${mode}); ${result.added} added and ${result.updated} updated`;
+  } finally {
+    els.importMerge.disabled = false;
+    els.importReplace.disabled = false;
+    els.importFile.value = "";
+  }
+}
+
+function unknownVesselCount() {
+  return vessels.filter((vessel) => !String(vessel.name || "").trim() || !String(vessel.callsign || "").trim())
+    .length;
+}
+
+async function startLookup() {
+  const count = unknownVesselCount();
+  if (!count) {
+    els.status.textContent = "Every vessel already has a name and callsign";
+    return;
+  }
+  if (
+    !window.confirm(
+      `Look up ${count} vessels with a missing name or callsign in the official ITU MARS register? Existing values will not be overwritten.`,
+    )
+  ) {
+    return;
+  }
+  const result = await requestJson(`${API_BASE}/lookup/start`, { method: "POST" });
+  renderLookupStatus(result.lookup);
+  scheduleLookupPoll();
+}
+
+async function cancelLookup() {
+  const result = await requestJson(`${API_BASE}/lookup/cancel`, { method: "POST" });
+  renderLookupStatus(result.lookup);
+}
+
+function renderLookupStatus(lookup) {
+  const running = lookup?.running === true;
+  els.lookupUnknown.disabled = running;
+  els.importVessels.disabled = running;
+  els.deleteAll.disabled = running;
+  els.cancelLookup.hidden = !running;
+  if (running) {
+    const current = lookup.currentMmsi ? `, MMSI ${lookup.currentMmsi}` : "";
+    els.status.textContent = `ITU MARS lookup ${lookup.processed}/${lookup.total}${current}; ${lookup.updated} updated, ${lookup.notFound} not found, ${lookup.failed} failed`;
+    return;
+  }
+  if (lookup?.finishedAt) {
+    const state = lookup.cancelled ? "cancelled" : "finished";
+    els.status.textContent = `ITU MARS lookup ${state}: ${lookup.updated} updated, ${lookup.notFound} not found, ${lookup.failed} failed`;
+  }
+}
+
+function scheduleLookupPoll() {
+  if (lookupPollTimer) clearTimeout(lookupPollTimer);
+  lookupPollTimer = setTimeout(() => {
+    pollLookup().catch(showError);
+  }, 1_000);
+}
+
+async function pollLookup() {
+  const result = await requestJson(`${API_BASE}/lookup/status`);
+  renderLookupStatus(result.lookup);
+  if (result.lookup?.running) scheduleLookupPoll();
+  else {
+    await refresh();
+    renderLookupStatus(result.lookup);
+  }
+}
+
 els.refresh.addEventListener("click", () => {
   refresh().catch(showError);
 });
 
 els.deleteAll.addEventListener("click", () => {
   deleteAll().catch(showError);
+});
+
+els.exportVessels.addEventListener("click", exportVessels);
+
+els.importVessels.addEventListener("click", () => els.importFile.click());
+
+els.importFile.addEventListener("change", () => {
+  chooseImportFile(els.importFile.files?.[0]).catch(showError);
+});
+
+els.importMerge.addEventListener("click", () => {
+  importVesselPayload("merge").catch(showError);
+});
+
+els.importReplace.addEventListener("click", () => {
+  importVesselPayload("replace").catch(showError);
+});
+
+els.lookupUnknown.addEventListener("click", () => {
+  startLookup().catch(showError);
+});
+
+els.cancelLookup.addEventListener("click", () => {
+  cancelLookup().catch(showError);
 });
 
 els.filter.addEventListener("input", render);
@@ -252,4 +416,7 @@ function showError(error) {
   els.status.textContent = `Problem: ${error.message}`;
 }
 
-refresh().catch(showError);
+Promise.all([refresh(), requestJson(`${API_BASE}/lookup/status`)]).then(([, result]) => {
+  renderLookupStatus(result.lookup);
+  if (result.lookup?.running) scheduleLookupPoll();
+}).catch(showError);

@@ -17,7 +17,12 @@
         <div class="actions">
           <input id="filter" type="search" placeholder="Filter vessels" />
           <button id="refresh" type="button">Refresh</button>
+          <button id="exportVessels" type="button">Export</button>
+          <button id="importVessels" type="button">Import</button>
+          <button id="lookupUnknown" type="button">Look up unknown</button>
+          <button id="cancelLookup" type="button" hidden>Cancel lookup</button>
           <button id="deleteAll" type="button" class="danger">Delete all</button>
+          <input id="importFile" type="file" accept="application/json,.json" hidden />
         </div>
       </header>
       <p id="status" role="status"></p>
@@ -48,6 +53,22 @@
           <tbody id="vessels"></tbody>
         </table>
       </section>
+      <dialog id="importDialog">
+        <form method="dialog">
+          <h2>Import vessel database</h2>
+          <p id="importFileSummary"></p>
+          <p>
+            <strong>Merge</strong> updates vessels in the file and keeps all other stored vessels.
+            <strong>Replace</strong> restores exactly the vessels in the file; a server-side backup is
+            written first.
+          </p>
+          <div class="dialog-actions">
+            <button id="importMerge" type="button">Merge import</button>
+            <button id="importReplace" type="button" class="danger">Replace database</button>
+            <button type="submit">Cancel</button>
+          </div>
+        </form>
+      </dialog>
     </main>
     <script src="./app.js"></script>
   </body>

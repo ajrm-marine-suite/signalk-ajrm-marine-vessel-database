@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+- Add editable JSON export for backup and manual vessel-data maintenance.
+- Add validated merge and replace imports, with an automatic server-side backup
+  before replacement and atomic rejection of invalid files.
+- Add a cancellable, rate-limited background lookup for every vessel missing a
+  name or callsign using the official ITU MARS register.
+- Preserve existing identity values and store only explicit ITU fields without
+  guessing IMO numbers or AIS ship types.
+- Show ITU lookup provenance, progress and returned registration details in the
+  web app.
+
 ## 0.6.1
 
 - Publish IMO registration numbers as canonical Signal K static vessel data

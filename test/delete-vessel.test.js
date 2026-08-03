@@ -69,7 +69,7 @@ test("selected-vessel DELETE route persists the deletion", () => {
   assert.deepEqual(saved.vessels, {});
 });
 
-test("BITE cleanup deletes only the Console's explicit test vessel identities", () => {
+test("test cleanup deletes only Console BITE and Simulator's explicit identities", () => {
   const ordinaryMmsi = "232035943";
   const database = {
     updatedAt: "2026-08-01T00:00:00.000Z",
@@ -92,7 +92,7 @@ test("BITE cleanup deletes only the Console's explicit test vessel identities", 
   assert.equal(database.updatedAt, "2026-08-03T15:00:00.000Z");
 });
 
-test("BITE cleanup contract contains the current reserved Console MMSIs", () => {
+test("test cleanup contract contains current reserved Console and Simulator MMSIs", () => {
   assert.deepEqual(BITE_TEST_MMSIS, [
     "235912345",
     "235912346",
@@ -110,6 +110,17 @@ test("BITE cleanup contract contains the current reserved Console MMSIs", () => 
     "235912358",
     "235912359",
     "235900219",
+    "235900001",
+    "235900002",
+    "235900003",
+    "235900004",
+    "235900005",
+    "235900006",
+    "235900007",
+    "235900008",
+    "235900009",
+    "235900010",
+    "111000599",
   ]);
 });
 

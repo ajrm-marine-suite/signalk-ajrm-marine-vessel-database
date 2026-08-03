@@ -227,7 +227,7 @@ async function refresh() {
   els.status.textContent = "Loading vessel database";
   const data = await requestJson(`${API_BASE}/vessels`);
   vessels = Array.isArray(data.vessels) ? data.vessels : [];
-  biteVesselCount = Number(data.status?.biteVesselCount) || 0;
+  biteVesselCount = Number(data.status?.testVesselCount ?? data.status?.biteVesselCount) || 0;
   els.deleteBite.disabled = biteVesselCount === 0 || data.status?.lookup?.running === true;
   if (selectedMmsi && !vessels.some((vessel) => String(vessel.mmsi || "") === selectedMmsi)) {
     renderDetails(null);
@@ -277,22 +277,22 @@ async function deleteSelectedVessel() {
 
 async function deleteBiteVessels() {
   if (!biteVesselCount) {
-    els.status.textContent = "No stored BITE test vessels to delete";
+    els.status.textContent = "No stored AJRM Marine test vessels to delete";
     return;
   }
   if (
     !window.confirm(
-      `Delete ${biteVesselCount} stored AJRM Marine Console BITE test vessels? Ordinary vessels will not be affected.`,
+      `Delete ${biteVesselCount} stored AJRM Marine test vessels created by Console BITE or Simulator? Ordinary vessels will not be affected.`,
     )
   ) {
     return;
   }
   els.deleteBite.disabled = true;
-  els.status.textContent = `Deleting ${biteVesselCount} BITE test vessels`;
+  els.status.textContent = `Deleting ${biteVesselCount} AJRM Marine test vessels`;
   const result = await requestJson(`${API_BASE}/delete-bite`, { method: "POST" });
   renderDetails(null);
   await refresh();
-  els.status.textContent = `Deleted ${result.removedCount} BITE test vessels`;
+  els.status.textContent = `Deleted ${result.removedCount} AJRM Marine test vessels`;
 }
 
 function exportVessels() {

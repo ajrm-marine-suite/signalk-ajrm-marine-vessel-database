@@ -5,7 +5,7 @@ const test = require("node:test");
 const { classifyMmsi } = require("../plugin/mmsi-classification");
 
 test("classifies 111MIDXXX as SAR aircraft and recognizes the optional helicopter digit", () => {
-  assert.deepEqual(classifyMmsi("111232534"), {
+  assert.deepEqual(classifyMmsi("111000599"), {
     category: "sar-aircraft",
     categoryDetail: "helicopter",
     categoryLabel: "SAR aircraft (helicopter)",

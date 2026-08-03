@@ -8,7 +8,7 @@ those identities from the online ship-station lookup. The optional ITU subtype
 digit is shown as fixed-wing or helicopter when present.
 
 Version `0.7.1` can delete the currently selected vessel after explicit
-confirmation, or remove all stored AJRM Marine Console BITE test vessels using
+confirmation, or remove all stored AJRM Marine Console BITE and Simulator test vessels using
 their reserved MMSIs without affecting ordinary vessels.
 
 Version `0.7.0` adds editable JSON export/import and a rate-limited background
@@ -41,12 +41,13 @@ Open **AJRM Marine Vessel Database** from the Signal K web apps list. The page s
 - Look up every vessel with a missing name or callsign in ITU MARS
 - Click a vessel row to show stored static details
 - Delete the selected vessel from its details panel
-- Delete only the explicit AJRM Marine Console BITE test vessels
+- Delete only the explicit AJRM Marine Console BITE and Simulator test vessels
 - Delete all, for clearing debug or replay data
 
 Deleting a selected vessel requires confirmation containing its name and MMSI.
 It removes only that database record; the vessel can be learned again if future
-AIS data supplies static details. **Delete BITE vessels** uses Console's explicit
+AIS data supplies static details. **Delete test vessels** uses the explicit
+identities reserved by Console BITE and Simulator. It matches their exact
 reserved test MMSIs rather than matching names, so similarly named real vessels
 are not selected.
 

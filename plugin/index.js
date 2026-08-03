@@ -10,7 +10,7 @@ const DEFAULT_FILE_NAME = "vessels.json";
 const FILL_COOLDOWN_MS = 60_000;
 const ONLINE_LOOKUP_DELAY_MS = 1_000;
 const EXPORT_FORMAT = "ajrm-marine-vessel-database";
-const BITE_TEST_MMSIS = Object.freeze([
+const CONSOLE_BITE_TEST_MMSIS = [
   "235912345",
   "235912346",
   "235912347",
@@ -27,6 +27,22 @@ const BITE_TEST_MMSIS = Object.freeze([
   "235912358",
   "235912359",
   "235900219",
+];
+const SIMULATOR_TEST_MMSIS = [
+  "235900001",
+  "235900002",
+  "235900003",
+  "235900004",
+  "235900005",
+  "235900006",
+  "235900007",
+  "235900008",
+  "235900009",
+  "235900010",
+  "111000599",
+];
+const BITE_TEST_MMSIS = Object.freeze([
+  ...new Set([...CONSOLE_BITE_TEST_MMSIS, ...SIMULATOR_TEST_MMSIS]),
 ]);
 
 const FIELD_DEFS = [
@@ -291,7 +307,7 @@ module.exports = function ajrmMarineVesselDatabase(app) {
         publishSummary();
       }
       app.setPluginStatus(
-        `Deleted ${removedMmsis.length} BITE test vessels, ${countVessels()} vessels remain`,
+        `Deleted ${removedMmsis.length} AJRM Marine test targets, ${countVessels()} vessels remain`,
       );
       res.json({
         ok: true,
@@ -645,6 +661,7 @@ module.exports = function ajrmMarineVesselDatabase(app) {
       vesselCount: countVessels(),
       databasePath: options.databasePath,
       fillMissingData: options.fillMissingData,
+      testVesselCount: biteVesselMmsis(database).length,
       biteVesselCount: biteVesselMmsis(database).length,
       lookup: lookupStatus(),
       stats: { ...stats },
@@ -1166,5 +1183,7 @@ module.exports.classifyMmsi = classifyMmsi;
 module.exports.normalizeItuMarsDetail = normalizeItuMarsDetail;
 module.exports.removeVesselRecord = removeVesselRecord;
 module.exports.BITE_TEST_MMSIS = BITE_TEST_MMSIS;
+module.exports.CONSOLE_BITE_TEST_MMSIS = Object.freeze([...CONSOLE_BITE_TEST_MMSIS]);
+module.exports.SIMULATOR_TEST_MMSIS = Object.freeze([...SIMULATOR_TEST_MMSIS]);
 module.exports.biteVesselMmsis = biteVesselMmsis;
 module.exports.removeBiteVesselRecords = removeBiteVesselRecords;

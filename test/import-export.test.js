@@ -137,7 +137,7 @@ test("online lookup selects vessels missing a name or callsign", () => {
 test("online ship lookup excludes ITU SAR aircraft", () => {
   const database = {
     vessels: {
-      "111232534": { mmsi: "111232534", fields: {} },
+      "111000599": { mmsi: "111000599", fields: {} },
       "235900001": { mmsi: "235900001", fields: {} },
     },
   };

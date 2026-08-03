@@ -82,9 +82,9 @@
     },
     "/delete-bite": {
       "post": {
-        "summary": "Delete only the explicit AJRM Marine Console BITE vessel identities",
+        "summary": "Delete only the explicit AJRM Marine Console BITE and Simulator test identities",
         "responses": {
-          "200": { "description": "BITE vessels deleted or none present" },
+          "200": { "description": "AJRM Marine test vessels deleted or none present" },
           "409": { "description": "Online lookup is running" }
         }
       }

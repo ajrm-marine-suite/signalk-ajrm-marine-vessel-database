@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.3
+
+- Extend the exact-identity test cleanup to remove Simulator targets as well as
+  Console BITE targets, including the synthetic SAR aircraft.
+- Rename the web action to **Delete test vessels** and retain the existing API
+  endpoint for compatibility.
+- Use only the reserved synthetic SAR MMSI in tests.
+
 ## 0.7.2
 
 - Classify exact ITU `111MIDXXX` identities as SAR aircraft and show the

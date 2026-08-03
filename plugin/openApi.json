@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "AJRM Marine Vessel Database API",
-    "version": "0.7.1",
+    "version": "0.7.2",
     "description": "Local vessel identity database, JSON backup/restore, and rate-limited ITU MARS lookup."
   },
   "servers": [

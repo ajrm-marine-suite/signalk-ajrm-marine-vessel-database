@@ -94,6 +94,7 @@ function matchesFilter(vessel, query) {
     vessel.callsign,
     vessel.imo,
     vessel.aisClass,
+    vessel.categoryLabel,
     typeName(vessel.shipType),
     vessel.ituMars?.administration,
     vessel.ituMars?.generalClassification,
@@ -111,7 +112,7 @@ function render() {
   els.summary.textContent = `${visibleVessels.length} of ${vessels.length} vessels`;
 
   if (!visibleVessels.length) {
-    els.vessels.innerHTML = `<tr><td colspan="8" class="empty">No vessels found</td></tr>`;
+    els.vessels.innerHTML = `<tr><td colspan="9" class="empty">No vessels found</td></tr>`;
     if (selectedMmsi) renderDetails(null);
     return;
   }
@@ -125,6 +126,7 @@ function render() {
       (vessel) => `<tr data-mmsi="${escapeHtml(vessel.mmsi || "")}" tabindex="0">
         <td>${escapeHtml(vessel.name || "")}</td>
         <td class="mono">${escapeHtml(vessel.mmsi || "")}</td>
+        <td>${escapeHtml(vessel.categoryLabel || "Vessel / surface craft")}</td>
         <td>${escapeHtml(vessel.callsign || "")}</td>
         <td>${escapeHtml(typeName(vessel.shipType))}</td>
         <td>${escapeHtml(vessel.aisClass || "")}</td>
@@ -152,6 +154,8 @@ function renderDetails(vessel) {
   const rows = [
     ["Name", vessel.name],
     ["MMSI", vessel.mmsi],
+    ["Category", vessel.categoryLabel],
+    ["Collision candidate", vessel.collisionCandidate === false ? "No" : "Yes"],
     ["Callsign", vessel.callsign],
     ["IMO", vessel.imo],
     ["Type", typeName(vessel.shipType)],
@@ -345,7 +349,11 @@ async function importVesselPayload(mode) {
 }
 
 function unknownVesselCount() {
-  return vessels.filter((vessel) => !String(vessel.name || "").trim() || !String(vessel.callsign || "").trim())
+  return vessels.filter(
+    (vessel) =>
+      vessel.onlineShipLookupEligible !== false &&
+      (!String(vessel.name || "").trim() || !String(vessel.callsign || "").trim()),
+  )
     .length;
 }
 

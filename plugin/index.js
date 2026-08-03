@@ -3,6 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 const packageInfo = require("../package.json");
 const { ITU_MARS_URL, lookupItuMarsByMmsi } = require("./itu-mars");
+const { classifyMmsi } = require("./mmsi-classification");
 
 const SUMMARY_PATH = "plugins.ajrmMarineVesselDatabase.summary";
 const DEFAULT_FILE_NAME = "vessels.json";
@@ -656,14 +657,18 @@ module.exports = function ajrmMarineVesselDatabase(app) {
 
   function listVessels() {
     return Object.values(database.vessels || {})
-      .map((record) => ({
-        mmsi: record.mmsi,
-        firstSeen: record.firstSeen,
-        lastSeen: record.lastSeen,
-        updatedAt: record.updatedAt,
-        onlineLookup: record.onlineLookup,
-        ...record.fields,
-      }))
+      .map((record) => {
+        const classification = classifyMmsi(record.mmsi);
+        return {
+          mmsi: record.mmsi,
+          firstSeen: record.firstSeen,
+          lastSeen: record.lastSeen,
+          updatedAt: record.updatedAt,
+          onlineLookup: record.onlineLookup,
+          ...record.fields,
+          ...classification,
+        };
+      })
       .sort((a, b) => {
         const left = String(a.name || a.mmsi || "");
         const right = String(b.name || b.mmsi || "");
@@ -723,6 +728,7 @@ function createLookupJob(total = 0) {
 function lookupCandidates(database) {
   return Object.values(database?.vessels || {})
     .filter((record) => !normalizeText(record?.fields?.name) || !normalizeText(record?.fields?.callsign))
+    .filter((record) => classifyMmsi(record?.mmsi).onlineShipLookupEligible)
     .map((record) => normalizeMmsi(record.mmsi))
     .filter(Boolean)
     .sort();
@@ -1156,6 +1162,7 @@ module.exports.mmsiFromContext = mmsiFromContext;
 module.exports.buildExportPayload = buildExportPayload;
 module.exports.importDatabasePayload = importDatabasePayload;
 module.exports.lookupCandidates = lookupCandidates;
+module.exports.classifyMmsi = classifyMmsi;
 module.exports.normalizeItuMarsDetail = normalizeItuMarsDetail;
 module.exports.removeVesselRecord = removeVesselRecord;
 module.exports.BITE_TEST_MMSIS = BITE_TEST_MMSIS;

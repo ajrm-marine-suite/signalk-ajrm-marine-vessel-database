@@ -133,3 +133,14 @@ test("online lookup selects vessels missing a name or callsign", () => {
 
   assert.deepEqual(lookupCandidates(database), ["235900001"]);
 });
+
+test("online ship lookup excludes ITU SAR aircraft", () => {
+  const database = {
+    vessels: {
+      "111232534": { mmsi: "111232534", fields: {} },
+      "235900001": { mmsi: "235900001", fields: {} },
+    },
+  };
+
+  assert.deepEqual(lookupCandidates(database), ["235900001"]);
+});

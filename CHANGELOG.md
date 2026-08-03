@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.2
+
+- Classify exact ITU `111MIDXXX` identities as SAR aircraft and show the
+  category and collision-candidate status in the database.
+- Recognize the optional fixed-wing/helicopter subtype digit and exclude SAR
+  aircraft from the ITU ship-station lookup queue.
+
 ## 0.7.1
 
 - Add confirmed deletion of the currently selected vessel by exact MMSI.

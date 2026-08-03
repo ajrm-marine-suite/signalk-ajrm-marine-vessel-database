@@ -9,6 +9,24 @@ const DEFAULT_FILE_NAME = "vessels.json";
 const FILL_COOLDOWN_MS = 60_000;
 const ONLINE_LOOKUP_DELAY_MS = 1_000;
 const EXPORT_FORMAT = "ajrm-marine-vessel-database";
+const BITE_TEST_MMSIS = Object.freeze([
+  "235912345",
+  "235912346",
+  "235912347",
+  "235912348",
+  "235912349",
+  "235912350",
+  "235912351",
+  "235912352",
+  "235912353",
+  "235912354",
+  "235912355",
+  "235912356",
+  "235912357",
+  "235912358",
+  "235912359",
+  "235900219",
+]);
 
 const FIELD_DEFS = [
   { key: "name", path: "name", type: "text" },
@@ -215,6 +233,33 @@ module.exports = function ajrmMarineVesselDatabase(app) {
       });
     });
 
+    router.delete("/vessels/:mmsi", (req, res) => {
+      if (lookupJob.running) {
+        res.status(409).json({ ok: false, error: "Cancel or finish the online lookup first" });
+        return;
+      }
+      const mmsi = normalizeMmsi(req.params?.mmsi);
+      if (!mmsi) {
+        res.status(400).json({ ok: false, error: "A valid vessel MMSI is required" });
+        return;
+      }
+      if (!removeVesselRecord(database, mmsi)) {
+        res.status(404).json({ ok: false, error: `Vessel ${mmsi} is not in the database` });
+        return;
+      }
+      for (const key of fillTimes.keys()) {
+        if (key.includes(mmsi)) fillTimes.delete(key);
+      }
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+      }
+      saveDatabase();
+      publishSummary();
+      app.setPluginStatus(`Deleted vessel ${mmsi}, ${countVessels()} vessels remain`);
+      res.json({ ok: true, deletedMmsi: mmsi, status: buildStatus() });
+    });
+
     router.post("/delete-all", (_req, res) => {
       if (lookupJob.running) {
         res.status(409).json({ ok: false, error: "Cancel or finish the online lookup first" });
@@ -223,6 +268,34 @@ module.exports = function ajrmMarineVesselDatabase(app) {
       clearDatabase();
       res.json({
         ok: true,
+        status: buildStatus(),
+      });
+    });
+
+    router.post("/delete-bite", (_req, res) => {
+      if (lookupJob.running) {
+        res.status(409).json({ ok: false, error: "Cancel or finish the online lookup first" });
+        return;
+      }
+      const removedMmsis = removeBiteVesselRecords(database);
+      if (removedMmsis.length) {
+        for (const key of fillTimes.keys()) {
+          if (removedMmsis.some((mmsi) => key.includes(mmsi))) fillTimes.delete(key);
+        }
+        if (saveTimer) {
+          clearTimeout(saveTimer);
+          saveTimer = null;
+        }
+        saveDatabase();
+        publishSummary();
+      }
+      app.setPluginStatus(
+        `Deleted ${removedMmsis.length} BITE test vessels, ${countVessels()} vessels remain`,
+      );
+      res.json({
+        ok: true,
+        removedCount: removedMmsis.length,
+        removedMmsis,
         status: buildStatus(),
       });
     });
@@ -571,6 +644,7 @@ module.exports = function ajrmMarineVesselDatabase(app) {
       vesselCount: countVessels(),
       databasePath: options.databasePath,
       fillMissingData: options.fillMissingData,
+      biteVesselCount: biteVesselMmsis(database).length,
       lookup: lookupStatus(),
       stats: { ...stats },
     };
@@ -607,6 +681,25 @@ function createEmptyDatabase() {
     updatedAt: now,
     vessels: {},
   };
+}
+
+function removeVesselRecord(database, mmsi, timestamp = new Date().toISOString()) {
+  const normalizedMmsi = normalizeMmsi(mmsi);
+  if (!normalizedMmsi || !Object.hasOwn(database?.vessels || {}, normalizedMmsi)) return false;
+  delete database.vessels[normalizedMmsi];
+  database.updatedAt = normalizeTimestamp(timestamp);
+  return true;
+}
+
+function biteVesselMmsis(database) {
+  return BITE_TEST_MMSIS.filter((mmsi) => Object.hasOwn(database?.vessels || {}, mmsi));
+}
+
+function removeBiteVesselRecords(database, timestamp = new Date().toISOString()) {
+  const mmsis = biteVesselMmsis(database);
+  for (const mmsi of mmsis) delete database.vessels[mmsi];
+  if (mmsis.length) database.updatedAt = normalizeTimestamp(timestamp);
+  return mmsis;
 }
 
 function createLookupJob(total = 0) {
@@ -1064,3 +1157,7 @@ module.exports.buildExportPayload = buildExportPayload;
 module.exports.importDatabasePayload = importDatabasePayload;
 module.exports.lookupCandidates = lookupCandidates;
 module.exports.normalizeItuMarsDetail = normalizeItuMarsDetail;
+module.exports.removeVesselRecord = removeVesselRecord;
+module.exports.BITE_TEST_MMSIS = BITE_TEST_MMSIS;
+module.exports.biteVesselMmsis = biteVesselMmsis;
+module.exports.removeBiteVesselRecords = removeBiteVesselRecords;

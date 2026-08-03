@@ -2,6 +2,10 @@
 
 AJRM Marine Vessel Database is a Signal K plugin that gradually learns static AIS vessel details by MMSI.
 
+Version `0.7.1` can delete the currently selected vessel after explicit
+confirmation, or remove all stored AJRM Marine Console BITE test vessels using
+their reserved MMSIs without affecting ordinary vessels.
+
 Version `0.7.0` adds editable JSON export/import and a rate-limited background
 lookup for vessels with a missing name or callsign using the official ITU MARS
 ship-station register.
@@ -31,7 +35,15 @@ Open **AJRM Marine Vessel Database** from the Signal K web apps list. The page s
 - Import an edited backup by merging records or replacing the database
 - Look up every vessel with a missing name or callsign in ITU MARS
 - Click a vessel row to show stored static details
+- Delete the selected vessel from its details panel
+- Delete only the explicit AJRM Marine Console BITE test vessels
 - Delete all, for clearing debug or replay data
+
+Deleting a selected vessel requires confirmation containing its name and MMSI.
+It removes only that database record; the vessel can be learned again if future
+AIS data supplies static details. **Delete BITE vessels** uses Console's explicit
+reserved test MMSIs rather than matching names, so similarly named real vessels
+are not selected.
 
 ## Export and Import
 
@@ -77,7 +89,7 @@ Only static details are filled. Live navigation data such as position, speed, co
 
 ```bash
 cd ~/.signalk
-npm install git+https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database.git#v0.7.0 --omit=dev --no-package-lock
+npm install git+https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database.git#v0.7.1 --omit=dev --no-package-lock
 sudo systemctl restart signalk
 ```
 

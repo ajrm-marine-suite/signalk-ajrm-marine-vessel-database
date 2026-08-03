@@ -14,12 +14,14 @@ const els = {
   importReplace: document.getElementById("importReplace"),
   lookupUnknown: document.getElementById("lookupUnknown"),
   cancelLookup: document.getElementById("cancelLookup"),
+  deleteBite: document.getElementById("deleteBite"),
   deleteAll: document.getElementById("deleteAll"),
   vessels: document.getElementById("vessels"),
   details: document.getElementById("details"),
   detailsName: document.getElementById("detailsName"),
   detailsSubtitle: document.getElementById("detailsSubtitle"),
   detailsList: document.getElementById("detailsList"),
+  deleteVessel: document.getElementById("deleteVessel"),
   closeDetails: document.getElementById("closeDetails"),
 };
 
@@ -28,6 +30,7 @@ let selectedMmsi = "";
 let visibleVessels = [];
 let pendingImport = null;
 let lookupPollTimer = null;
+let biteVesselCount = 0;
 
 function escapeHtml(value) {
   return String(value ?? "").replace(
@@ -220,6 +223,8 @@ async function refresh() {
   els.status.textContent = "Loading vessel database";
   const data = await requestJson(`${API_BASE}/vessels`);
   vessels = Array.isArray(data.vessels) ? data.vessels : [];
+  biteVesselCount = Number(data.status?.biteVesselCount) || 0;
+  els.deleteBite.disabled = biteVesselCount === 0 || data.status?.lookup?.running === true;
   if (selectedMmsi && !vessels.some((vessel) => String(vessel.mmsi || "") === selectedMmsi)) {
     renderDetails(null);
   }
@@ -239,6 +244,51 @@ async function deleteAll() {
   renderDetails(null);
   render();
   els.status.textContent = "Vessel database cleared";
+}
+
+async function deleteSelectedVessel() {
+  const vessel = vessels.find((item) => String(item.mmsi || "") === selectedMmsi);
+  if (!vessel?.mmsi) return;
+  const identity = vessel.name ? `${vessel.name} (MMSI ${vessel.mmsi})` : `MMSI ${vessel.mmsi}`;
+  if (
+    !window.confirm(
+      `Delete ${identity} from AJRM Marine Vessel Database? It may be learned again if future AIS data supplies its details.`,
+    )
+  ) {
+    return;
+  }
+  els.deleteVessel.disabled = true;
+  els.status.textContent = `Deleting ${identity}`;
+  try {
+    await requestJson(`${API_BASE}/vessels/${encodeURIComponent(vessel.mmsi)}`, {
+      method: "DELETE",
+    });
+    renderDetails(null);
+    await refresh();
+    els.status.textContent = `Deleted ${identity}`;
+  } finally {
+    els.deleteVessel.disabled = false;
+  }
+}
+
+async function deleteBiteVessels() {
+  if (!biteVesselCount) {
+    els.status.textContent = "No stored BITE test vessels to delete";
+    return;
+  }
+  if (
+    !window.confirm(
+      `Delete ${biteVesselCount} stored AJRM Marine Console BITE test vessels? Ordinary vessels will not be affected.`,
+    )
+  ) {
+    return;
+  }
+  els.deleteBite.disabled = true;
+  els.status.textContent = `Deleting ${biteVesselCount} BITE test vessels`;
+  const result = await requestJson(`${API_BASE}/delete-bite`, { method: "POST" });
+  renderDetails(null);
+  await refresh();
+  els.status.textContent = `Deleted ${result.removedCount} BITE test vessels`;
 }
 
 function exportVessels() {
@@ -327,6 +377,8 @@ function renderLookupStatus(lookup) {
   els.lookupUnknown.disabled = running;
   els.importVessels.disabled = running;
   els.deleteAll.disabled = running;
+  els.deleteVessel.disabled = running;
+  els.deleteBite.disabled = running || biteVesselCount === 0;
   els.cancelLookup.hidden = !running;
   if (running) {
     const current = lookup.currentMmsi ? `, MMSI ${lookup.currentMmsi}` : "";
@@ -362,6 +414,14 @@ els.refresh.addEventListener("click", () => {
 
 els.deleteAll.addEventListener("click", () => {
   deleteAll().catch(showError);
+});
+
+els.deleteVessel.addEventListener("click", () => {
+  deleteSelectedVessel().catch(showError);
+});
+
+els.deleteBite.addEventListener("click", () => {
+  deleteBiteVessels().catch(showError);
 });
 
 els.exportVessels.addEventListener("click", exportVessels);

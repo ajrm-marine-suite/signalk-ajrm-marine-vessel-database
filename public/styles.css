@@ -150,6 +150,12 @@ button.danger:hover {
   letter-spacing: 0;
 }
 
+.details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .details-panel dl {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));

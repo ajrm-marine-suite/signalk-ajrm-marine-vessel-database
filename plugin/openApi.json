@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "AJRM Marine Vessel Database API",
-    "version": "0.7.0",
+    "version": "0.7.1",
     "description": "Local vessel identity database, JSON backup/restore, and rate-limited ITU MARS lookup."
   },
   "servers": [
@@ -16,6 +16,25 @@
         "summary": "List stored vessels",
         "responses": {
           "200": { "description": "Stored vessel records" }
+        }
+      }
+    },
+    "/vessels/{mmsi}": {
+      "delete": {
+        "summary": "Delete one selected vessel by its exact MMSI",
+        "parameters": [
+          {
+            "name": "mmsi",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[0-9]{9}$" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Vessel deleted" },
+          "400": { "description": "Invalid MMSI" },
+          "404": { "description": "Vessel not found" },
+          "409": { "description": "Online lookup is running" }
         }
       }
     },
@@ -58,6 +77,15 @@
         "summary": "Request cancellation of the background lookup",
         "responses": {
           "200": { "description": "Cancellation requested" }
+        }
+      }
+    },
+    "/delete-bite": {
+      "post": {
+        "summary": "Delete only the explicit AJRM Marine Console BITE vessel identities",
+        "responses": {
+          "200": { "description": "BITE vessels deleted or none present" },
+          "409": { "description": "Online lookup is running" }
         }
       }
     }

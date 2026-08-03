@@ -21,6 +21,7 @@
           <button id="importVessels" type="button">Import</button>
           <button id="lookupUnknown" type="button">Look up unknown</button>
           <button id="cancelLookup" type="button" hidden>Cancel lookup</button>
+          <button id="deleteBite" type="button" class="danger">Delete BITE vessels</button>
           <button id="deleteAll" type="button" class="danger">Delete all</button>
           <input id="importFile" type="file" accept="application/json,.json" hidden />
         </div>
@@ -32,7 +33,10 @@
             <h2 id="detailsName">Vessel details</h2>
             <p id="detailsSubtitle"></p>
           </div>
-          <button id="closeDetails" type="button" aria-label="Close details">Close</button>
+          <div class="details-actions">
+            <button id="deleteVessel" type="button" class="danger">Delete vessel</button>
+            <button id="closeDetails" type="button" aria-label="Close details">Close</button>
+          </div>
         </div>
         <dl id="detailsList"></dl>
       </section>

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1
+
+- Add confirmed deletion of the currently selected vessel by exact MMSI.
+- Add one-button removal of the AJRM Marine Console BITE vessels using the
+  explicit reserved test MMSI list rather than vessel-name matching.
+- Prevent selected and BITE vessel deletion while an online lookup is active.
+
 ## 0.7.0
 
 - Add editable JSON export for backup and manual vessel-data maintenance.

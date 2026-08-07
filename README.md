@@ -1,19 +1,13 @@
 # AJRM Marine Vessel Database
 
-AJRM Marine Vessel Database is a Signal K plugin that gradually learns static AIS vessel details by MMSI.
+AJRM Marine Vessel Database is the AJRM Marine Suite's persistent authority for
+static vessel identity and particulars, keyed by MMSI. It is deliberately
+separate from Traffic: the database learns, curates, backs up and fills static
+identity data, while Traffic owns live target tracking and collision assessment.
 
-Version `0.7.3` identifies the ITU `111MIDXXX` allocation as SAR aircraft,
-shows the category and collision-candidate status in the database, and excludes
-those identities from the online ship-station lookup. The optional ITU subtype
-digit is shown as fixed-wing or helicopter when present.
-
-Version `0.7.1` can delete the currently selected vessel after explicit
-confirmation, or remove all stored AJRM Marine Console BITE and Simulator test vessels using
-their reserved MMSIs without affecting ordinary vessels.
-
-Version `0.7.0` adds editable JSON export/import and a rate-limited background
-lookup for vessels with a missing name or callsign using the official ITU MARS
-ship-station register.
+Version `0.8.0` is the reviewed Signal K baseline. Mutating HTTP endpoints require
+Signal K read/write or administrator access, the ITU lookup is cancelled cleanly
+on shutdown, and duplicate and obsolete migration-only code has been removed.
 
 AIS targets, especially Class B targets, do not broadcast static data such as name, callsign, dimensions, or vessel type as often as position data. This plugin watches normal Signal K deltas, stores the static details when they appear, and can publish known static details back into Signal K when a known MMSI is later seen without them.
 
@@ -27,7 +21,7 @@ The primary key is MMSI. The database is a JSON file on disk, stored by default 
 - AIS class
 - AIS ship type
 - Length, beam, draft
-- AIS dimensions to bow, stern, port, and starboard when they arrive from AIS-specific ship-dimension data
+- AIS antenna offsets from bow and vessel centre when supplied on the standard AIS sensor paths
 - First seen, last seen, and per-field update timestamps
 
 ## Web App
@@ -95,7 +89,7 @@ Only static details are filled. Live navigation data such as position, speed, co
 
 ```bash
 cd ~/.signalk
-npm install git+https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database.git#v0.7.4 --omit=dev --no-package-lock
+npm install git+https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database.git#v0.8.0 --omit=dev --no-package-lock
 sudo systemctl restart signalk
 ```
 
@@ -119,7 +113,12 @@ The test command syntax-checks the plugin and browser JavaScript.
 
 This plugin only stores and republishes non-changing/static vessel details. It does not alter live navigation fields such as position, SOG, COG, heading, CPA, TCPA, or alert state.
 
-AJRM Marine Vessel Database ignores generic `design.dimensions` reference offsets, including when they arrive inside full vessel snapshot updates, because those can be assumed hull geometry from another plugin rather than AIS static data. Older stored reference offsets are scrubbed on startup so stale assumed dimensions are not shown or republished.
+AJRM Marine Vessel Database ignores generic `design.dimensions` reference offsets,
+including when they arrive inside full vessel snapshot updates, because those can
+be assumed hull geometry from another plugin rather than AIS static data. It uses
+the raw Signal K delta event intentionally: learning all vessel contexts requires
+the original context, source and grouped update structure rather than a
+self-vessel path subscription.
 
 
 ## Public Beta

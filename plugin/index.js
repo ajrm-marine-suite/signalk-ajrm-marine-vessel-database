@@ -72,13 +72,6 @@ const FILLABLE_KEYS = [
   "aisFromCenter",
 ];
 const ROOT_STATIC_FILL_KEYS = new Set(["name", "callsign", "imo"]);
-const LEGACY_REFERENCE_DIMENSION_KEYS = [
-  "dimensionToBow",
-  "dimensionToStern",
-  "dimensionToPort",
-  "dimensionToStarboard",
-];
-
 module.exports = function ajrmMarineVesselDatabase(app) {
   const plugin = {};
   let options = normalizeOptions({}, app);
@@ -86,14 +79,12 @@ module.exports = function ajrmMarineVesselDatabase(app) {
   let deltaListener = null;
   let saveTimer = null;
   let lookupJob = createLookupJob();
+  let lookupPromise = null;
+  let lookupAbortController = null;
+  let running = false;
+  let lifecycleGeneration = 0;
   const fillTimes = new Map();
-  const stats = {
-    learned: 0,
-    updated: 0,
-    filled: 0,
-    ignored: 0,
-    errors: 0,
-  };
+  let stats = createStats();
 
   plugin.id = "signalk-ajrm-marine-vessel-database";
   plugin.name = "AJRM Marine Vessel Database";
@@ -142,29 +133,31 @@ module.exports = function ajrmMarineVesselDatabase(app) {
   plugin.getOpenApi = () => require("./openApi.json");
 
   plugin.start = (pluginOptions = {}) => {
+    stopRuntime();
+    running = true;
+    lifecycleGeneration += 1;
+    lookupJob = createLookupJob();
+    stats = createStats();
+    fillTimes.clear();
     options = normalizeOptions(pluginOptions, app);
     ensureDirectory(options.databaseDirectory);
     database = loadDatabase(options.databasePath);
-    if (scrubLegacyReferenceDimensions(database)) scheduleSave();
     attachDeltaListener();
     publishSummary();
     app.setPluginStatus(`Started v${packageInfo.version}, ${countVessels()} vessels`);
   };
 
-  plugin.stop = () => {
-    lookupJob.cancelRequested = true;
-    if (deltaListener) {
-      app.signalk?.removeListener?.("delta", deltaListener);
-      deltaListener = null;
-    }
-    if (saveTimer) {
-      clearTimeout(saveTimer);
-      saveTimer = null;
-      saveDatabase();
-    }
+  plugin.stop = async () => {
+    const pendingLookup = lookupPromise;
+    stopRuntime();
+    if (options.publishSummary) publishSummaryValue(null);
+    app.setPluginStatus?.("Stopped");
+    await pendingLookup?.catch(() => {});
+    if (lookupPromise === pendingLookup) lookupPromise = null;
   };
 
   plugin.registerWithRouter = function registerWithRouter(router) {
+    const write = requireWriteAccess;
     router.get("/status", (_req, res) => {
       res.json(buildStatus());
     });
@@ -184,7 +177,7 @@ module.exports = function ajrmMarineVesselDatabase(app) {
       res.send(`${JSON.stringify(buildExportPayload(database), null, 2)}\n`);
     });
 
-    router.post("/import", (req, res) => {
+    router.post("/import", write((req, res) => {
       try {
         if (lookupJob.running) {
           res.status(409).json({
@@ -209,13 +202,13 @@ module.exports = function ajrmMarineVesselDatabase(app) {
         stats.errors += 1;
         res.status(400).json({ ok: false, error: error.message });
       }
-    });
+    }));
 
     router.get("/lookup/status", (_req, res) => {
       res.json({ ok: true, lookup: lookupStatus() });
     });
 
-    router.post("/lookup/start", (_req, res) => {
+    router.post("/lookup/start", write((_req, res) => {
       if (lookupJob.running) {
         res.status(409).json({ ok: false, error: "An online vessel lookup is already running" });
         return;
@@ -229,28 +222,25 @@ module.exports = function ajrmMarineVesselDatabase(app) {
       }
       lookupJob.running = true;
       lookupJob.startedAt = new Date().toISOString();
-      void runOnlineLookup(candidates);
+      lookupAbortController = new AbortController();
+      const generation = lifecycleGeneration;
+      lookupPromise = runOnlineLookup(candidates, generation, lookupAbortController.signal)
+        .finally(() => {
+          if (generation === lifecycleGeneration) {
+            lookupPromise = null;
+            lookupAbortController = null;
+          }
+        });
       res.status(202).json({ ok: true, lookup: lookupStatus() });
-    });
+    }));
 
-    router.post("/lookup/cancel", (_req, res) => {
+    router.post("/lookup/cancel", write((_req, res) => {
       lookupJob.cancelRequested = true;
+      lookupAbortController?.abort();
       res.json({ ok: true, lookup: lookupStatus() });
-    });
+    }));
 
-    router.delete("/vessels", (_req, res) => {
-      if (lookupJob.running) {
-        res.status(409).json({ ok: false, error: "Cancel or finish the online lookup first" });
-        return;
-      }
-      clearDatabase();
-      res.json({
-        ok: true,
-        status: buildStatus(),
-      });
-    });
-
-    router.delete("/vessels/:mmsi", (req, res) => {
+    router.delete("/vessels/:mmsi", write((req, res) => {
       if (lookupJob.running) {
         res.status(409).json({ ok: false, error: "Cancel or finish the online lookup first" });
         return;
@@ -275,9 +265,9 @@ module.exports = function ajrmMarineVesselDatabase(app) {
       publishSummary();
       app.setPluginStatus(`Deleted vessel ${mmsi}, ${countVessels()} vessels remain`);
       res.json({ ok: true, deletedMmsi: mmsi, status: buildStatus() });
-    });
+    }));
 
-    router.post("/delete-all", (_req, res) => {
+    router.post("/delete-all", write((_req, res) => {
       if (lookupJob.running) {
         res.status(409).json({ ok: false, error: "Cancel or finish the online lookup first" });
         return;
@@ -287,9 +277,9 @@ module.exports = function ajrmMarineVesselDatabase(app) {
         ok: true,
         status: buildStatus(),
       });
-    });
+    }));
 
-    router.post("/delete-bite", (_req, res) => {
+    router.post("/delete-bite", write((_req, res) => {
       if (lookupJob.running) {
         res.status(409).json({ ok: false, error: "Cancel or finish the online lookup first" });
         return;
@@ -315,7 +305,7 @@ module.exports = function ajrmMarineVesselDatabase(app) {
         removedMmsis,
         status: buildStatus(),
       });
-    });
+    }));
   };
 
   return plugin;
@@ -337,6 +327,7 @@ module.exports = function ajrmMarineVesselDatabase(app) {
   }
 
   function handleDelta(delta) {
+    if (!running) return;
     if (!delta || typeof delta !== "object") return;
     if (delta.$source === plugin.id || delta.source?.label === plugin.id) return;
 
@@ -491,11 +482,13 @@ module.exports = function ajrmMarineVesselDatabase(app) {
   }
 
   function scheduleSave() {
+    if (!running) return;
     if (saveTimer) return;
     saveTimer = setTimeout(() => {
       saveTimer = null;
       saveDatabase();
     }, 500);
+    saveTimer.unref?.();
   }
 
   function saveDatabase() {
@@ -523,14 +516,14 @@ module.exports = function ajrmMarineVesselDatabase(app) {
     fs.writeFileSync(backupPath, `${JSON.stringify(database, null, 2)}\n`);
   }
 
-  async function runOnlineLookup(candidates) {
+  async function runOnlineLookup(candidates, generation, signal) {
     for (let index = 0; index < candidates.length; index += 1) {
-      if (lookupJob.cancelRequested) break;
+      if (!running || generation !== lifecycleGeneration || lookupJob.cancelRequested) break;
       const mmsi = candidates[index];
       lookupJob.currentMmsi = mmsi;
       try {
-        const result = await lookupItuMarsByMmsi(mmsi);
-        if (lookupJob.cancelRequested) break;
+        const result = await lookupItuMarsByMmsi(mmsi, { signal });
+        if (!running || generation !== lifecycleGeneration || lookupJob.cancelRequested) break;
         const record = database.vessels[mmsi];
         if (!record) {
           lookupJob.notFound += 1;
@@ -547,6 +540,7 @@ module.exports = function ajrmMarineVesselDatabase(app) {
           scheduleSave();
         }
       } catch (error) {
+        if (!running || generation !== lifecycleGeneration || lookupJob.cancelRequested) break;
         lookupJob.failed += 1;
         lookupJob.lastError = `${mmsi}: ${error.message}`;
         app.debug(`[${plugin.id}] ITU MARS lookup failed for ${mmsi}: ${error.message}`);
@@ -554,9 +548,10 @@ module.exports = function ajrmMarineVesselDatabase(app) {
       lookupJob.processed += 1;
       publishSummary();
       if (index < candidates.length - 1 && !lookupJob.cancelRequested) {
-        await delay(ONLINE_LOOKUP_DELAY_MS);
+        await delay(ONLINE_LOOKUP_DELAY_MS, signal).catch(() => {});
       }
     }
+    if (!running || generation !== lifecycleGeneration) return;
     lookupJob.currentMmsi = null;
     lookupJob.running = false;
     lookupJob.cancelled = lookupJob.cancelRequested;
@@ -638,6 +633,10 @@ module.exports = function ajrmMarineVesselDatabase(app) {
 
   function publishSummary() {
     if (!options.publishSummary) return;
+    publishSummaryValue(buildStatus());
+  }
+
+  function publishSummaryValue(value) {
     app.handleMessage(plugin.id, {
       context: "vessels.self",
       updates: [
@@ -646,7 +645,7 @@ module.exports = function ajrmMarineVesselDatabase(app) {
           values: [
             {
               path: SUMMARY_PATH,
-              value: buildStatus(),
+              value,
             },
           ],
         },
@@ -692,6 +691,41 @@ module.exports = function ajrmMarineVesselDatabase(app) {
         return left.localeCompare(right);
       });
   }
+
+  function requireWriteAccess(handler) {
+    return function writeAccessHandler(req, res) {
+      const permission = req.skPrincipal?.permissions;
+      if (
+        permission === "admin" ||
+        permission === "readwrite" ||
+        (permission === undefined && req.skIsAuthenticated !== false)
+      ) {
+        return handler(req, res);
+      }
+      res.status(403).json({
+        ok: false,
+        error: "Vessel Database controls require Signal K read/write or admin access.",
+      });
+      return undefined;
+    };
+  }
+
+  function stopRuntime() {
+    running = false;
+    lifecycleGeneration += 1;
+    lookupJob.cancelRequested = true;
+    lookupAbortController?.abort();
+    lookupAbortController = null;
+    if (deltaListener) {
+      app.signalk?.removeListener?.("delta", deltaListener);
+      deltaListener = null;
+    }
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      saveDatabase();
+    }
+  }
 };
 
 function createEmptyDatabase() {
@@ -702,6 +736,16 @@ function createEmptyDatabase() {
     createdAt: now,
     updatedAt: now,
     vessels: {},
+  };
+}
+
+function createStats() {
+  return {
+    learned: 0,
+    updated: 0,
+    filled: 0,
+    ignored: 0,
+    errors: 0,
   };
 }
 
@@ -944,8 +988,24 @@ function cloneDatabase(database) {
   return JSON.parse(JSON.stringify(database || createEmptyDatabase()));
 }
 
-function delay(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+function delay(milliseconds, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("Lookup cancelled"));
+      return;
+    }
+    const finish = () => {
+      signal?.removeEventListener("abort", cancel);
+      resolve();
+    };
+    const cancel = () => {
+      clearTimeout(timer);
+      reject(new Error("Lookup cancelled"));
+    };
+    const timer = setTimeout(finish, milliseconds);
+    timer.unref?.();
+    signal?.addEventListener("abort", cancel, { once: true });
+  });
 }
 
 function loadDatabase(filePath) {
@@ -959,21 +1019,6 @@ function loadDatabase(filePath) {
   } catch {
     return createEmptyDatabase();
   }
-}
-
-function scrubLegacyReferenceDimensions(database) {
-  let changed = false;
-  for (const record of Object.values(database.vessels || {})) {
-    if (!record?.fields) continue;
-    for (const key of LEGACY_REFERENCE_DIMENSION_KEYS) {
-      if (record.fields[key] !== undefined || record.fieldUpdatedAt?.[key] !== undefined) {
-        changed = true;
-      }
-      delete record.fields[key];
-      delete record.fieldUpdatedAt?.[key];
-    }
-  }
-  return changed;
 }
 
 function normalizeOptions(value = {}, app) {

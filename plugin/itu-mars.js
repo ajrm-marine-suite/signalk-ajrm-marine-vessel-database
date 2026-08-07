@@ -18,6 +18,7 @@ async function lookupItuMarsByMmsi(mmsi, options = {}) {
   const searchPage = await fetchText(fetchImpl, ITU_MARS_URL, {
     headers: commonHeaders,
     timeoutMs: options.timeoutMs,
+    signal: options.signal,
   });
   const breadcrumb = hiddenInputValue(searchPage.text, "Breadcrumb");
   if (!breadcrumb) throw new Error("ITU MARS search token was not available");
@@ -37,6 +38,7 @@ async function lookupItuMarsByMmsi(mmsi, options = {}) {
     },
     body: searchBody.toString(),
     timeoutMs: options.timeoutMs,
+    signal: options.signal,
   });
   const match = parseSearchResult(searchResult.text, normalizedMmsi);
   if (!match) return null;
@@ -57,6 +59,7 @@ async function lookupItuMarsByMmsi(mmsi, options = {}) {
     },
     body: detailBody.toString(),
     timeoutMs: options.timeoutMs,
+    signal: options.signal,
   });
   return normalizeLookupResult(
     { ...match, ...parseDetailPage(detailResult.text) },
@@ -66,6 +69,9 @@ async function lookupItuMarsByMmsi(mmsi, options = {}) {
 
 async function fetchText(fetchImpl, url, options = {}) {
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
   const timeout = setTimeout(
     () => controller.abort(),
     Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : DEFAULT_TIMEOUT_MS,
@@ -83,10 +89,13 @@ async function fetchText(fetchImpl, url, options = {}) {
     }
     return { response, text: await response.text() };
   } catch (error) {
-    if (error?.name === "AbortError") throw new Error("ITU MARS lookup timed out");
+    if (error?.name === "AbortError") {
+      throw new Error(options.signal?.aborted ? "ITU MARS lookup cancelled" : "ITU MARS lookup timed out");
+    }
     throw error;
   } finally {
     clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 

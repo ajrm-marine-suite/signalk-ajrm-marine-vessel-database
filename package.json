@@ -1,6 +1,6 @@
 {
   "name": "signalk-ajrm-marine-vessel-database",
-  "version": "0.7.4",
+  "version": "0.8.0",
   "description": "Local vessel notes and identity database for AJRM Marine Suite.",
   "main": "plugin/index.js",
   "scripts": {
@@ -29,7 +29,7 @@
   },
   "homepage": "https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database#readme",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "files": [
     "plugin",

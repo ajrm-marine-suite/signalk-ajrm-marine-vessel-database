@@ -2,92 +2,71 @@
   "openapi": "3.0.3",
   "info": {
     "title": "AJRM Marine Vessel Database API",
-    "version": "0.7.2",
-    "description": "Local vessel identity database, JSON backup/restore, and rate-limited ITU MARS lookup."
+    "version": "0.8.0",
+    "description": "Persistent local vessel identity data, backup/restore, and rate-limited official ITU MARS lookup. Mutations require Signal K read/write or administrator access."
   },
-  "servers": [
-    {
-      "url": "/plugins/signalk-ajrm-marine-vessel-database"
-    }
-  ],
+  "servers": [{ "url": "/plugins/signalk-ajrm-marine-vessel-database" }],
   "paths": {
+    "/status": {
+      "get": { "summary": "Get database and lookup status", "responses": { "200": { "description": "Current status" } } }
+    },
     "/vessels": {
-      "get": {
-        "summary": "List stored vessels",
-        "responses": {
-          "200": { "description": "Stored vessel records" }
-        }
-      }
+      "get": { "summary": "List stored vessel records", "responses": { "200": { "description": "Stored vessels" } } }
     },
     "/vessels/{mmsi}": {
       "delete": {
-        "summary": "Delete one selected vessel by its exact MMSI",
-        "parameters": [
-          {
-            "name": "mmsi",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string", "pattern": "^[0-9]{9}$" }
-          }
-        ],
-        "responses": {
-          "200": { "description": "Vessel deleted" },
-          "400": { "description": "Invalid MMSI" },
-          "404": { "description": "Vessel not found" },
-          "409": { "description": "Online lookup is running" }
-        }
+        "summary": "Delete one stored vessel",
+        "security": [{ "signalk": ["readwrite"] }],
+        "parameters": [{ "name": "mmsi", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[0-9]{9}$" } }],
+        "responses": { "200": { "description": "Vessel deleted" }, "400": { "description": "Invalid MMSI" }, "403": { "description": "Read/write access required" }, "404": { "description": "Not found" }, "409": { "description": "Lookup running" } }
       }
     },
     "/export": {
-      "get": {
-        "summary": "Download an editable JSON vessel database export",
-        "responses": {
-          "200": { "description": "Editable vessel database JSON" }
-        }
-      }
+      "get": { "summary": "Download an editable JSON backup", "responses": { "200": { "description": "Database export" } } }
     },
     "/import": {
       "post": {
-        "summary": "Validate and merge or replace vessel records from an export",
-        "responses": {
-          "200": { "description": "Import summary" },
-          "400": { "description": "Invalid import rejected without changing the database" }
-        }
-      }
-    },
-    "/lookup/start": {
-      "post": {
-        "summary": "Start a background ITU MARS lookup for vessels missing name or callsign",
-        "responses": {
-          "202": { "description": "Lookup started" },
-          "409": { "description": "Lookup already running" }
-        }
+        "summary": "Validate and merge or replace records from an export",
+        "security": [{ "signalk": ["readwrite"] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Import summary" }, "400": { "description": "Invalid import" }, "403": { "description": "Read/write access required" }, "409": { "description": "Lookup running" } }
       }
     },
     "/lookup/status": {
-      "get": {
-        "summary": "Get background lookup progress",
-        "responses": {
-          "200": { "description": "Lookup status" }
-        }
+      "get": { "summary": "Get online lookup progress", "responses": { "200": { "description": "Lookup status" } } }
+    },
+    "/lookup/start": {
+      "post": {
+        "summary": "Start ITU MARS lookup for incomplete eligible records",
+        "security": [{ "signalk": ["readwrite"] }],
+        "responses": { "200": { "description": "No candidates" }, "202": { "description": "Lookup started" }, "403": { "description": "Read/write access required" }, "409": { "description": "Lookup already running" } }
       }
     },
     "/lookup/cancel": {
       "post": {
-        "summary": "Request cancellation of the background lookup",
-        "responses": {
-          "200": { "description": "Cancellation requested" }
-        }
+        "summary": "Cancel the current online lookup",
+        "security": [{ "signalk": ["readwrite"] }],
+        "responses": { "200": { "description": "Cancellation requested" }, "403": { "description": "Read/write access required" } }
+      }
+    },
+    "/delete-all": {
+      "post": {
+        "summary": "Delete every stored vessel",
+        "security": [{ "signalk": ["readwrite"] }],
+        "responses": { "200": { "description": "Database cleared" }, "403": { "description": "Read/write access required" }, "409": { "description": "Lookup running" } }
       }
     },
     "/delete-bite": {
       "post": {
-        "summary": "Delete only the explicit AJRM Marine Console BITE and Simulator test identities",
-        "responses": {
-          "200": { "description": "AJRM Marine test vessels deleted or none present" },
-          "409": { "description": "Online lookup is running" }
-        }
+        "summary": "Delete only reserved Console BITE and Simulator identities",
+        "security": [{ "signalk": ["readwrite"] }],
+        "responses": { "200": { "description": "Test records deleted" }, "403": { "description": "Read/write access required" }, "409": { "description": "Lookup running" } }
       }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "signalk": { "type": "http", "scheme": "bearer" }
     }
   }
 }

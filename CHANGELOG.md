@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.4
+
+- Correct the current release and installation version in the public guide.
+
 ## 0.7.3
 
 - Extend the exact-identity test cleanup to remove Simulator targets as well as

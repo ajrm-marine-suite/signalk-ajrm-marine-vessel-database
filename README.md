@@ -2,7 +2,7 @@
 
 AJRM Marine Vessel Database is a Signal K plugin that gradually learns static AIS vessel details by MMSI.
 
-Version `0.7.2` identifies the ITU `111MIDXXX` allocation as SAR aircraft,
+Version `0.7.3` identifies the ITU `111MIDXXX` allocation as SAR aircraft,
 shows the category and collision-candidate status in the database, and excludes
 those identities from the online ship-station lookup. The optional ITU subtype
 digit is shown as fixed-wing or helicopter when present.
@@ -95,7 +95,7 @@ Only static details are filled. Live navigation data such as position, speed, co
 
 ```bash
 cd ~/.signalk
-npm install git+https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database.git#v0.7.2 --omit=dev --no-package-lock
+npm install git+https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database.git#v0.7.4 --omit=dev --no-package-lock
 sudo systemctl restart signalk
 ```
 

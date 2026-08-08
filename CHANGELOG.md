@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1
+
+- Include the Simulator's two reserved default AIS base-station MMSIs in
+  **Delete test vessels**.
+- Keep cleanup identity-based so real AIS base stations and similarly named
+  records remain untouched.
+
 ## 0.7.4
 
 - Correct the current release and installation version in the public guide.

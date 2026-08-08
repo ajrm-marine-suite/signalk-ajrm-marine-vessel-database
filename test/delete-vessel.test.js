@@ -78,7 +78,7 @@ test("test cleanup deletes only Console BITE and Simulator's explicit identities
       [BITE_TEST_MMSIS[0]]: { mmsi: BITE_TEST_MMSIS[0], fields: { name: "BITE TEST TARGET" } },
       [BITE_TEST_MMSIS.at(-1)]: {
         mmsi: BITE_TEST_MMSIS.at(-1),
-        fields: { name: "BITE CLEAR TARGET" },
+        fields: { name: "SIM AIS BASE EAST", aisClass: "BASE" },
       },
     },
   };
@@ -121,7 +121,33 @@ test("test cleanup contract contains current reserved Console and Simulator MMSI
     "235900009",
     "235900010",
     "111000599",
+    "002350001",
+    "002350002",
   ]);
+});
+
+test("test cleanup includes both reserved Simulator AIS base stations", () => {
+  const database = {
+    updatedAt: "2026-08-01T00:00:00.000Z",
+    vessels: {
+      "002350001": {
+        mmsi: "002350001",
+        fields: { name: "SIM AIS BASE WEST", aisClass: "BASE" },
+      },
+      "002350002": {
+        mmsi: "002350002",
+        fields: { name: "SIM AIS BASE EAST", aisClass: "BASE" },
+      },
+      "002320768": {
+        mmsi: "002320768",
+        fields: { name: "REAL AIS BASE", aisClass: "BASE" },
+      },
+    },
+  };
+
+  assert.deepEqual(biteVesselMmsis(database), ["002350001", "002350002"]);
+  assert.deepEqual(removeBiteVesselRecords(database), ["002350001", "002350002"]);
+  assert.deepEqual(Object.keys(database.vessels), ["002320768"]);
 });
 
 function fakeApp() {

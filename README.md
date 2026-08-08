@@ -5,9 +5,10 @@ static vessel identity and particulars, keyed by MMSI. It is deliberately
 separate from Traffic: the database learns, curates, backs up and fills static
 identity data, while Traffic owns live target tracking and collision assessment.
 
-Version `0.8.0` is the reviewed Signal K baseline. Mutating HTTP endpoints require
+Version `0.8.1` is the reviewed Signal K baseline. Mutating HTTP endpoints require
 Signal K read/write or administrator access, the ITU lookup is cancelled cleanly
-on shutdown, and duplicate and obsolete migration-only code has been removed.
+on shutdown, duplicate and obsolete migration-only code has been removed, and
+test cleanup includes the Simulator's reserved AIS base stations.
 
 AIS targets, especially Class B targets, do not broadcast static data such as name, callsign, dimensions, or vessel type as often as position data. This plugin watches normal Signal K deltas, stores the static details when they appear, and can publish known static details back into Signal K when a known MMSI is later seen without them.
 
@@ -42,8 +43,9 @@ Deleting a selected vessel requires confirmation containing its name and MMSI.
 It removes only that database record; the vessel can be learned again if future
 AIS data supplies static details. **Delete test vessels** uses the explicit
 identities reserved by Console BITE and Simulator. It matches their exact
-reserved test MMSIs rather than matching names, so similarly named real vessels
-are not selected.
+reserved test MMSIs, including the Simulator's two default AIS base stations,
+rather than matching names or deleting all base stations. Similarly named real
+vessels and real AIS base stations are not selected.
 
 ## Export and Import
 
@@ -89,7 +91,7 @@ Only static details are filled. Live navigation data such as position, speed, co
 
 ```bash
 cd ~/.signalk
-npm install git+https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database.git#v0.8.0 --omit=dev --no-package-lock
+npm install git+https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database.git#v0.8.1 --omit=dev --no-package-lock
 sudo systemctl restart signalk
 ```
 

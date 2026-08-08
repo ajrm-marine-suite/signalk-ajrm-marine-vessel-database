@@ -40,6 +40,8 @@ const SIMULATOR_TEST_MMSIS = [
   "235900009",
   "235900010",
   "111000599",
+  "002350001",
+  "002350002",
 ];
 const BITE_TEST_MMSIS = Object.freeze([
   ...new Set([...CONSOLE_BITE_TEST_MMSIS, ...SIMULATOR_TEST_MMSIS]),

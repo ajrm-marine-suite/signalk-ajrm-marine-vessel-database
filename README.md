@@ -91,7 +91,7 @@ Only static details are filled. Live navigation data such as position, speed, co
 
 ```bash
 cd ~/.signalk
-npm install git+https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database.git#v0.8.1 --omit=dev --no-package-lock
+npm install git+https://github.com/ajrm-marine-suite/signalk-ajrm-marine-vessel-database.git#v0.8.2 --omit=dev --no-package-lock
 sudo systemctl restart signalk
 ```
 

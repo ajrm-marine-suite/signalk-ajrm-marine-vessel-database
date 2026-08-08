@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "AJRM Marine Vessel Database API",
-    "version": "0.8.0",
+    "version": "0.8.2",
     "description": "Persistent local vessel identity data, backup/restore, and rate-limited official ITU MARS lookup. Mutations require Signal K read/write or administrator access."
   },
   "servers": [{ "url": "/plugins/signalk-ajrm-marine-vessel-database" }],

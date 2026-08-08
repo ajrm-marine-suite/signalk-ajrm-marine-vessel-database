@@ -1,3 +1,7 @@
+/**
+ * Browser entry point for AJRM Marine Vessel Database; binds operator controls and renders server state.
+ */
+
 const API_BASE = "/plugins/signalk-ajrm-marine-vessel-database";
 
 const els = {

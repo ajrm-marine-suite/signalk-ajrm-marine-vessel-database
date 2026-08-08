@@ -1,3 +1,7 @@
+/**
+ * Signal K server entry point for AJRM Marine Vessel Database; registers lifecycle, subscriptions, routes, and status.
+ */
+
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");

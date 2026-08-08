@@ -1,3 +1,7 @@
+/**
+ * Implements the itu mars responsibilities of the AJRM Marine Vessel Database Signal K server.
+ */
+
 const ITU_MARS_URL = "https://www.itu.int/mmsapp/";
 const DEFAULT_TIMEOUT_MS = 20_000;
 

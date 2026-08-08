@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.2
+
+- Add concise purpose headers to every maintained runtime module so its role is
+  clear before reading implementation details.
+- Add a regression check that prevents new source modules from being introduced
+  without a module-purpose header.
+- Align OpenAPI metadata with the package release and test that the versions do
+  not drift apart again.
+- Preserve existing runtime contracts and behaviour following a suite-wide
+  maintainability and Signal K integration review.
+
 ## 0.8.1
 
 - Include the Simulator's two reserved default AIS base-station MMSIs in

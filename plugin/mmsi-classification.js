@@ -1,3 +1,7 @@
+/**
+ * Classifies MMSI in the AJRM Marine Vessel Database Signal K server.
+ */
+
 "use strict";
 
 function classifyMmsi(mmsi) {
